@@ -1,0 +1,453 @@
+#include <iostream>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <stdlib.h>
+#include <ncurses.h>
+#include <unistd.h>
+#include <bits/stdc++.h>
+using namespace std;
+int game_win_height=52,game_win_width=52;
+int score_win_height=20,score_win_width=20;
+int key;
+struct node{
+	int x,y;
+};
+WINDOW * game_win,*score_win;
+ 
+WINDOW *create_newwin(int height,int width,int starty,int startx){
+	WINDOW *local_win;
+	local_win=newwin(height,width,starty,startx);
+	box(local_win,0,0);
+	wrefresh(local_win);
+	return local_win;
+}
+void Destorywin(WINDOW *local_win){
+	wborder(local_win, ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ');//原来*边框改为空白 前四个参数为四条边框，后四个参数是四个边角
+	wrefresh(local_win);
+	delwin(local_win);//删除窗口 
+}
+int getrand(int min, int max)//随机数用于设置果果位置 
+{
+	return(min+rand()%(max-min+1));
+}
+ class Snake{
+	public:
+		int score;//得分
+		int snake_hx,snake_hy;//蛇头所在位置 
+		int snake_wx,snake_wy;//蛇尾所在位置 
+		int box[52][52];//游戏区域 
+		int snake[52][52];//记录蛇身所占用了哪些位置 
+		int apple_x,apple_y;//记录出现的果果的位置 
+		int len;//记录蛇长
+		bool gameover; 
+		bool lflag,rflag,uflag,dflag;//记录当前蛇头移动方向 
+		vector<node>v;//用于找到蛇尾前一个结点用于对蛇尾的更新 
+	public:
+	    void initial(); //初始化 
+	    void next_score();//计分 
+	    bool judge();//判断是否碰到身体或墙壁 
+	    void  move();//蛇的移动 
+	    void  showapple(int box[52][52],int apple_x,int apple_y);//显示果果 
+	    bool eat();//吃果果 
+};
+int main(){
+	initscr();//屏幕初始化，并进入curses模式
+	//raw();//所有的输入不需要输入回车就可以传递给程序
+	cbreak();//禁止行缓冲，控制字符将被终端驱动程序解释成其它字符，控制字符会被发送给程序处理
+	noecho();//禁止输入的字符出现在屏幕上
+	curs_set(0);//不显示光标 
+	keypad(stdscr,TRUE);//允许使用功能键，为标准屏幕（stdscr）激活了功能键
+    refresh();
+    
+    game_win = create_newwin(game_win_height, game_win_width, 0,0);//创建游戏窗口，设置边框
+	wborder(game_win, '*', '*', '*', '*', '*', '*', '*', '*');
+	wrefresh(game_win);
+	
+	score_win = create_newwin(score_win_height, score_win_width, 20,game_win_width+10);//创建游戏窗口，设置边框
+	wborder(score_win, '*', '*', '*', '*', '*', '*', '*', '*');
+	mvprintw(25, game_win_width+10+2,"%s","Score");//在指定位置格式化输出
+	wrefresh(score_win);
+	
+	Snake *ss=new Snake;
+	ss->initial();
+	while(1){
+		ss->move();
+		if(ss->gameover)break;
+	} 
+	
+	Destorywin(game_win);
+	Destorywin(score_win);
+	delete ss;
+	system("clear");
+
+	int row,col;
+	getmaxyx(stdscr,row,col);//得到stdscr的行列值 
+	mvprintw(row/2,col/2 ,"%s","GAMER OVER ! \n ");//在指定位置输出 
+	mvprintw(row/2+2,col/2-2 ,"%s","Wait 5s to return tthe erminal ! \n ");
+	refresh();
+
+	sleep(5);
+	endwin();//关闭窗口stdscr
+	return 0;
+}
+void Snake :: initial(){
+	score=0;
+	gameover=false;
+	len=5;//初始化蛇长为5 
+	
+	fill(box[0],box[0]+52*52,0);
+	for(int i=0;i<52;i++){//设置边界为1 
+		box[0][i]=1;
+		box[51][i]=1;
+	}
+	for(int i=0;i<52;i++){
+		box[i][0]=1;
+		box[i][51]=1;
+	}
+	
+	srand((unsigned)time(0));//stime(NULL)返回当前的时间，先调用srand(time(NULL))是把当前的时间作为种子，
+	//是程序每次运行产生不同的随机数序列。使用rand（）前要添加此语句
+	apple_x=getrand(1,50);
+	apple_y=getrand(1,50);
+	showapple(box,apple_x,apple_y);
+	
+	snake_hx=game_win_height/2;
+	snake_wx=snake_hx+4;//设置初始长度为5 
+	snake_hy=snake_wy=game_win_width/2;
+	for(int i=snake_hx;i<=snake_hx+4;i++){
+		box[i][snake_hy]=1;
+		struct node n1;
+		n1.x=i;
+		n1.y=snake_hy;
+		v.push_back(n1);
+		mvwaddch(game_win,i,snake_hy,'*');//是把光标移动到指定窗口中的指定位置处输出字符。 
+		wrefresh(game_win);
+	}
+	uflag=true;//一开始设为向前走 
+	dflag=false;
+	lflag=false;
+	rflag=false;
+	 
+	mvwprintw(score_win, score_win_height/2,score_win_width/2-2,"%d",score);
+	wrefresh(score_win);
+}
+
+void Snake::showapple(int box[52][52],int apple_x,int apple_y){
+	box[apple_x][apple_y]=1;
+	mvwaddch(game_win,apple_x,apple_y,'*');
+	wrefresh(game_win);
+}
+
+bool Snake::judge(){
+	if(snake_hx==0||snake_hx==51||snake_hy==0||snake_hy==51)return true;//碰壁 
+	else {
+		for(int i=0;i<v.size();i++){
+			if(snake_hx==v[i].x&&snake_hy==v[i].y)return true;//碰蛇身 
+		} 
+	    return false;
+	} 
+} 
+bool Snake::eat(){
+	if(snake_hx==apple_x&&snake_hy==apple_y){
+		box[apple_x][apple_y]=0;
+		len++;
+		next_score();
+		srand((unsigned)time(0));//stime(NULL)返回当前的时间，先调用srand(time(NULL))是把当前的时间作为种子，
+	//是程序每次运行产生不同的随机数序列。使用rand（）前要添加此语句
+    	apple_x=getrand(1,50);
+	    apple_y=getrand(1,50);
+	    showapple(box,apple_x,apple_y);
+		return true;
+	}else return false;
+}
+void Snake::next_score(){
+	score=(len-5)*10;
+	mvwprintw(score_win, score_win_height/2,score_win_width/2-2,"%d",score);//在得分框的中间显示分数 
+	wrefresh(score_win);
+}
+void Snake::move(){
+	fd_set set;/*select()机制中提供一fd_set的数据结构，实际上是一long类型的数组，
+	 每一个数组元素都能与一打开的文件句柄
+	 (不管是socket句柄，还是其他文件或命名管道或设备句柄)建立联系， 
+	 fd_set(它比较重要所以先介绍一下)是一组文件描述字(fd)的集合，
+	 它用一位来表示一个fd，对于fd_set类型通过下面四个宏来操作： */ 
+	 FD_ZERO(&set);//将set的所有位置0，如set在内存中占8位则将set置为00000000
+	 FD_SET(0, &set);/*将set的第0位置1，如set原来是00000000，则现在变为100000000，这样fd==1的文件描述字就被加进set中了*/
+	/* FD_CLR(4, &set);       //将set的第4位置0，如set原来是10001000，则现在变为10000000，这样fd==4的文件描述字就被从set中清除了
+    FD_ISSET(5, &set);     //测试set的第5位是否为1，如果原来set是10000100，则返回非零，表明fd==5的文件描述符在set中，否则返回0
+	*/ 
+	 struct timeval timeout;/*该结构体是Linux系统定义的，timeout 就是我们最多等待按键的时间，
+	 这里设置了 500000us，超过这个时间就不再等待 getch() 的输入，直接进行下一步。*/ 
+	 timeout.tv_sec = 0;//秒数 
+	 timeout.tv_usec= 500000;//微秒数 
+	 
+	 if (select(1, &set, NULL, NULL, &timeout) == 0){//没有按键的情况下自行向前移动
+	    if(uflag==true)//判断移动方向更新对应参数 
+	 	snake_hx--;
+	 	else if(dflag==true)
+	 	snake_hx++;
+	 	else if(rflag==true)
+	 	snake_hy++;
+	 	else
+	 	snake_hy--;
+	    if(judge()){
+	    	if(uflag==true)//将之前的操作消除掉 
+	 	    snake_hx++;
+	 	    else if(dflag==true)
+	 	    snake_hx--;
+	 	    else if(rflag==true)
+	 	    snake_hy--;
+	 	    else
+	 	    snake_hy++;
+	      	gameover=true; 
+		} else if(eat()){//如果在移动过程中吃到果果就只要将蛇头移动到果果位置即可蛇尾不变 
+			box[snake_hx][snake_hy]=1; 
+			struct node n;
+			n.x=snake_hx;
+			n.y=snake_hy;
+			v.insert(v.begin(),n); 
+			for(int i=1;i<=50;i++){
+				for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+			}
+			wrefresh(game_win);
+		}
+		else{//仅仅是移动 
+			box[snake_hx][snake_hy]=1;//蛇头增加 
+			box[snake_wx][snake_wy]=0;//蛇尾清零 
+			v.erase(v.end()-1);
+			struct node n;
+			n.x=snake_hx;
+			n.y=snake_hy;
+			v.insert(v.begin(),n); 
+			snake_wx=v[v.size()-1].x;
+			snake_wy=v[v.size()-1].y;
+			for(int i=1;i<=50;i++){
+				for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+			}
+			wrefresh(game_win);
+		}
+	 }
+	 if (FD_ISSET(0, &set)) {
+	    while ((key = getch()) == -1) ;
+	    if(key==KEY_LEFT){
+	    	lflag=true;
+	    	dflag=false;
+	    	uflag=false;
+	    	rflag=false;
+	    	snake_hy--;
+	    	if(judge()){
+	    		snake_hy++;
+	    		gameover=true;
+			}else if(eat()){
+			box[snake_hx][snake_hy]=1;
+			struct node n;
+			n.x=snake_hx;
+			n.y=snake_hy;
+			v.insert(v.begin(),n); 
+			for(int i=1;i<=50;i++){
+				for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+			}
+			wrefresh(game_win);
+		}else{
+				box[snake_wx][snake_wy]=0;
+	    	    box[snake_hx][snake_hy]=1;
+	    	    v.erase(v.end()-1);
+	    	    struct node n;
+			    n.x=snake_hx;
+			    n.y=snake_hy;
+		    	v.insert(v.begin(),n); 
+	    	    snake_wx=v[v.size()-1].x;
+	    	    snake_wy=v[v.size()-1].y; 
+				for(int i=1;i<=50;i++){
+				    for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+			  }
+			  wrefresh(game_win);
+			}
+		}
+		if(key==KEY_RIGHT){
+			rflag=true;
+			lflag=false;
+			uflag=false;
+			dflag=false;
+			snake_hy++;
+			if(judge()){
+				snake_hy--;
+				gameover=true;
+			}else if(eat()){
+			box[snake_hx][snake_hy]=1;
+			struct node n;
+			n.x=snake_hx;
+			n.y=snake_hy;
+			v.insert(v.begin(),n); 
+			for(int i=1;i<=50;i++){
+				for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+			}
+			wrefresh(game_win);
+		}else{
+				box[snake_hx][snake_hy]=1;//更新新的蛇头位置 
+				box[snake_wx][snake_wy]=0;//将原来的尾巴消掉 
+				v.erase(v.end()-1);
+				struct node n;
+		    	n.x=snake_hx;
+			    n.y=snake_hy;
+			    v.insert(v.begin(),n); 
+	    	    snake_wx=v[v.size()-1].x;
+	    	    snake_wy=v[v.size()-1].y; 
+				for(int i=1;i<=50;i++){
+				    for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+		      }
+		      wrefresh(game_win);
+			}
+		} 
+		if(key==KEY_DOWN){
+			dflag=true;
+			uflag=false;
+			rflag=false;
+			lflag=false;
+			snake_hx++;
+			if(judge()){
+				snake_hx--;
+				gameover=true;
+			}else if(eat()){
+			box[snake_hx][snake_hy]=1;
+			struct node n;
+			n.x=snake_hx;
+			n.y=snake_hy;
+			v.insert(v.begin(),n); 
+			for(int i=1;i<=50;i++){
+				for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+			}
+			wrefresh(game_win);
+		}else{
+				box[snake_hx][snake_hy]=1;
+				box[snake_wx][snake_wy]=0;
+				v.erase(v.end()-1);
+				struct node n;
+			    n.x=snake_hx;
+			    n.y=snake_hy;
+			    v.insert(v.begin(),n); 
+	    	    snake_wx=v[v.size()-1].x;
+	    	    snake_wy=v[v.size()-1].y; 
+	    	    for(int i=1;i<=50;i++){
+				    for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+		      }
+		      wrefresh(game_win);
+			}
+		}
+		if (key==KEY_UP){
+			uflag=true;
+			dflag=false;
+			lflag=false;
+			rflag=false;
+			snake_hx--;
+			if(judge()){
+				snake_hx++;
+				gameover=true;
+			}else if(eat()){
+			box[snake_hx][snake_hy]=1;
+			struct node n;
+			n.x=snake_hx;
+			n.y=snake_hy;
+			v.insert(v.begin(),n); 
+			for(int i=1;i<=50;i++){
+				for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+			}
+			wrefresh(game_win);
+		}else{
+				box[snake_hx][snake_hy]=1;
+				box[snake_wx][snake_wy]=0;
+				v.erase(v.end()-1);
+				struct node n;
+			    n.x=snake_hx;
+			    n.y=snake_hy;
+			    v.insert(v.begin(),n); 
+	    	    snake_wx=v[v.size()-1].x;
+	    	    snake_wy=v[v.size()-1].y; 
+				for(int i=1;i<=50;i++){
+				    for(int j=1;j<=50;j++){
+					if(box[i][j]==0){
+						mvwaddch(game_win,i,j,' ');
+                     	wrefresh(game_win);
+					}else{
+						mvwaddch(game_win,i,j,'*');
+                     	wrefresh(game_win);
+					}
+				}
+		      }
+		      wrefresh(game_win);
+			}
+		}
+     }
+}
